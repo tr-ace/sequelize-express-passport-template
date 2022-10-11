@@ -12,8 +12,8 @@ To get started with this example, clone the repository and install the
 dependencies.
 
 ```bash
-$ git clone {{GIT_URL}}
-$ cd {{PROJECT_NAME}}
+$ git clone https://github.com/tr-ace/sequelize-express-passport-template.git
+$ cd sequelize-express-passport-template
 $ npm install
 ```
 
