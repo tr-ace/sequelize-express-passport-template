@@ -1,15 +1,16 @@
 var express = require('express');
 var ensureLogIn = require('connect-ensure-login').ensureLoggedIn;
-var db = require('../db');
-
 var ensureLoggedIn = ensureLogIn();
 
-function fetchTodos(req, res, next) {
-  db.all('SELECT * FROM todos WHERE owner_id = ?', [
-    req.user.id
-  ], function(err, rows) {
-    if (err) { return next(err); }
-    
+const Todo = require('../models/Todos');
+
+async function fetchTodos(req, res, next) {
+  await Todo.findAll({
+    where: {
+      owner_id: req.user.id 
+    } 
+  })
+  .then((rows) => {
     var todos = rows.map(function(row) {
       return {
         id: row.id,
@@ -22,12 +23,17 @@ function fetchTodos(req, res, next) {
     res.locals.activeCount = todos.filter(function(todo) { return !todo.completed; }).length;
     res.locals.completedCount = todos.length - res.locals.activeCount;
     next();
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 }
 
 var router = express.Router();
 
-/* GET home page. */
 router.get('/', function(req, res, next) {
   if (!req.user) { return res.render('home'); }
   next();
@@ -51,71 +57,118 @@ router.get('/completed', ensureLoggedIn, fetchTodos, function(req, res, next) {
 router.post('/', ensureLoggedIn, function(req, res, next) {
   req.body.title = req.body.title.trim();
   next();
-}, function(req, res, next) {
-  if (req.body.title !== '') { return next(); }
-  return res.redirect('/' + (req.body.filter || ''));
-}, function(req, res, next) {
-  db.run('INSERT INTO todos (owner_id, title, completed) VALUES (?, ?, ?)', [
-    req.user.id,
-    req.body.title,
-    req.body.completed == true ? 1 : null
-  ], function(err) {
-    if (err) { return next(err); }
+  }, function(req, res, next) {
+    if (req.body.title !== '') { return next(); }
     return res.redirect('/' + (req.body.filter || ''));
+  }, async function(req, res, next) {
+
+  await Todo.create({
+    owner_id: req.user.id,
+    title: req.body.title,
+    completed: req.body.completed == true ? 1 : null
+  }).then((result) => {
+    return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 });
 
 router.post('/:id(\\d+)', ensureLoggedIn, function(req, res, next) {
   req.body.title = req.body.title.trim();
   next();
-}, function(req, res, next) {
+}, async function(req, res, next) {
   if (req.body.title !== '') { return next(); }
-  db.run('DELETE FROM todos WHERE id = ? AND owner_id = ?', [
-    req.params.id,
-    req.user.id
-  ], function(err) {
-    if (err) { return next(err); }
+
+  await Todo.destroy({
+    where: {
+      id: req.params.id,
+      owner_id: req.user.id
+    }
+  }).then((result) => {
     return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
-}, function(req, res, next) {
-  db.run('UPDATE todos SET title = ?, completed = ? WHERE id = ? AND owner_id = ?', [
-    req.body.title,
-    req.body.completed !== undefined ? 1 : null,
-    req.params.id,
-    req.user.id
-  ], function(err) {
-    if (err) { return next(err); }
+
+}, async function(req, res, next) {
+  await Todo.update({
+    title: req.body.title,
+    completed: req.body.completed !== undefined ? 1 : null
+  },
+  {
+    where: {
+      id: req.params.id,
+      owner_id: req.user.id
+    }
+  }).then((result) => {
     return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 });
 
-router.post('/:id(\\d+)/delete', ensureLoggedIn, function(req, res, next) {
-  db.run('DELETE FROM todos WHERE id = ? AND owner_id = ?', [
-    req.params.id,
-    req.user.id
-  ], function(err) {
-    if (err) { return next(err); }
+router.post('/:id(\\d+)/delete', ensureLoggedIn, async function(req, res, next) {
+  await Todo.destroy({
+    where: {
+      id: req.params.id,
+      owner_id: req.user.id
+    }
+  }).then((result) => {
     return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 });
 
-router.post('/toggle-all', ensureLoggedIn, function(req, res, next) {
-  db.run('UPDATE todos SET completed = ? WHERE owner_id = ?', [
-    req.body.completed !== undefined ? 1 : null,
-    req.user.id
-  ], function(err) {
-    if (err) { return next(err); }
+router.post('/toggle-all', ensureLoggedIn, async function(req, res, next) {
+  await Todo.update({
+    completed: req.body.completed !== undefined ? 1 : null,
+  },
+  {
+    where: {
+      owner_id: req.user.id
+    }
+  }).then((result) => {
     return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 });
 
-router.post('/clear-completed', ensureLoggedIn, function(req, res, next) {
-  db.run('DELETE FROM todos WHERE owner_id = ? AND completed = ?', [
-    req.user.id,
-    1
-  ], function(err) {
-    if (err) { return next(err); }
+router.post('/clear-completed', ensureLoggedIn, async function(req, res, next) {
+  await Todo.destroy({
+    where: {
+      owner_id: req.user.id,
+      completed: 1
+    }
+  }).then((result) => {
     return res.redirect('/' + (req.body.filter || ''));
+  })
+  .catch((error) => {
+    res.locals.message = error.message;
+    res.locals.error = req.app.get('env') === 'development' ? err : {};
+    res.status(error.status || 500);
+    res.render('error');
   });
 });
 

@@ -1,47 +1,75 @@
 var express = require('express');
 var passport = require('passport');
 var FacebookStrategy = require('passport-facebook');
-var db = require('../db');
 
+const User = require('../models/Users');
+const FederatedCredential = require('../models/FederatedCredentials');
 
 passport.use(new FacebookStrategy({
   clientID: process.env['FACEBOOK_CLIENT_ID'],
   clientSecret: process.env['FACEBOOK_CLIENT_SECRET'],
   callbackURL: '/oauth2/redirect/facebook',
   state: true
-}, function verify(accessToken, refreshToken, profile, cb) {
-  db.get('SELECT * FROM federated_credentials WHERE provider = ? AND subject = ?', [
-    'https://www.facebook.com',
-    profile.id
-  ], function(err, row) {
-    if (err) { return cb(err); }
-    if (!row) {
-      db.run('INSERT INTO users (name) VALUES (?)', [
-        profile.displayName
-      ], function(err) {
-        if (err) { return cb(err); }
-        var id = this.lastID;
-        db.run('INSERT INTO federated_credentials (user_id, provider, subject) VALUES (?, ?, ?)', [
-          id,
-          'https://www.facebook.com',
-          profile.id
-        ], function(err) {
-          if (err) { return cb(err); }
+}, async function verify(accessToken, refreshToken, profile, cb) {
+
+  return await FederatedCredential.findOne({
+    where: {
+      provider: 'https://www.facebook.com',
+      subject: profile.id
+    }
+    })  
+  .then(async (fedResult) => {
+    if (fedResult === null) {
+      return await User.create({
+        name: profile.displayName
+      })
+      .then(async (userResult) => {
+        return await FederatedCredential.create({
+          user_id: userResult.id,
+          provider: 'https://www.facebook.com',
+          subject: profile.id
+        })
+        .then((fedCreateResult) => {
           var user = {
-            id: id,
+            id: fedCreateResult.dataValues.user_id,
             name: profile.displayName
           };
           return cb(null, user);
+        })
+        .catch((error) => {
+          return cb(error);
         });
+      })
+      .catch((error) => {
+        return cb(error);
       });
     } else {
-      db.get('SELECT * FROM users WHERE id = ?', [ row.user_id ], function(err, row) {
-        if (err) { return cb(err); }
-        if (!row) { return cb(null, false); }
-        return cb(null, row);
+      return await User.findOne({
+        where: {
+          id: fedResult.user_id
+        }
+      })
+      .then((result) => {
+        return result;
+      })
+      .then((user) => {
+        if (user) {
+          return cb(null, user);
+        } else {
+          return cb(null, false);
+        }
+      })
+      .catch((error) => {
+        if (error) return cb(error);
       });
     }
+
+  })
+  .catch((error) => {
+    console.log(error);
+    return cb(error);
   });
+
 }));
 
 passport.serializeUser(function(user, cb) {
